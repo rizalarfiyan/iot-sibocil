@@ -1,16 +1,19 @@
-#include <Arduino.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
-#include <SPI.h>
-#include <qrcode.h>
+#include <Arduino.h>
 #include <DFRobotDFPlayerMini.h>
+#include <SPI.h>
+#include <SoftwareSerial.h>
+#include <qrcode.h>
 
-// Declare PIN
+// Declare PIN TFT
 #define TFT_CS 14
 #define TFT_RST 2
 #define TFT_DC 15
-#define TFT_MOSI 22
-#define TFT_SCLK 18
+
+// Declare PIN Software Serial
+#define SS_RX_PIN 4
+#define SS_TX_PIN 5
 
 // Declare Color
 #define ST77XX_DARK_GRAY 0x4228
@@ -19,6 +22,7 @@
 #define DEFAULT_TEXT_SIZE 2.5
 
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+SoftwareSerial softwareSerial(SS_RX_PIN, SS_TX_PIN);
 DFRobotDFPlayerMini dfPlayer;
 
 int dotIndex = 0;
@@ -33,7 +37,6 @@ const int buttonPin = 13;
 void drawProgressBar();
 void displayCenteredText(String text, uint8_t textSize);
 void displayQRCode(String text);
-void printDetail(uint8_t type, int value);
 
 void setup(void) {
   Serial.begin(115200);
@@ -49,10 +52,9 @@ void setup(void) {
   tft.setTextColor(ST77XX_WHITE);
   displayCenteredText("Booting...", DEFAULT_TEXT_SIZE);
 
-  Serial1.begin(9600, SERIAL_8N1, 16, 17);
+  softwareSerial.begin(9600);
   Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
-
-  if (!dfPlayer.begin(Serial1, false, true)) {  // Use serial to communicate with mp3.
+  if (!dfPlayer.begin(softwareSerial, false, true)) {
     Serial.println(F("Unable to begin:"));
     Serial.println(F("1.Please recheck the connection!"));
     Serial.println(F("2.Please insert the SD card!"));
@@ -63,7 +65,7 @@ void setup(void) {
   }
 
   Serial.println(F("DFPlayer Mini online."));
-  dfPlayer.volume(15);
+  dfPlayer.volume(8);
   dfPlayer.playMp3Folder(1);
 
   delay(1000);
@@ -139,67 +141,5 @@ void displayQRCode(String text) {
         tft.fillRect(xPos + x * scaleFactor, yPos + y * scaleFactor, scaleFactor, scaleFactor, ST77XX_BLACK);
       }
     }
-  }
-}
-
-void printDetail(uint8_t type, int value) {
-  switch (type) {
-    case TimeOut:
-      Serial.println(F("Time Out!"));
-      break;
-    case WrongStack:
-      Serial.println(F("Stack Wrong!"));
-      break;
-    case DFPlayerCardInserted:
-      Serial.println(F("Card Inserted!"));
-      break;
-    case DFPlayerCardRemoved:
-      Serial.println(F("Card Removed!"));
-      break;
-    case DFPlayerCardOnline:
-      Serial.println(F("Card Online!"));
-      break;
-    case DFPlayerUSBInserted:
-      Serial.println("USB Inserted!");
-      break;
-    case DFPlayerUSBRemoved:
-      Serial.println("USB Removed!");
-      break;
-    case DFPlayerPlayFinished:
-      Serial.print(F("Number:"));
-      Serial.print(value);
-      Serial.println(F(" Play Finished!"));
-      break;
-    case DFPlayerError:
-      displayCenteredText("DF Player Error!", DEFAULT_TEXT_SIZE);
-      Serial.print(F("DFPlayerError:"));
-      switch (value) {
-        case Busy:
-          Serial.println(F("Card not found"));
-          break;
-        case Sleeping:
-          Serial.println(F("Sleeping"));
-          break;
-        case SerialWrongStack:
-          Serial.println(F("Get Wrong Stack"));
-          break;
-        case CheckSumNotMatch:
-          Serial.println(F("Check Sum Not Match"));
-          break;
-        case FileIndexOut:
-          Serial.println(F("File Index Out of Bound"));
-          break;
-        case FileMismatch:
-          Serial.println(F("Cannot Find File"));
-          break;
-        case Advertise:
-          Serial.println(F("In Advertise"));
-          break;
-        default:
-          break;
-      }
-      break;
-    default:
-      break;
   }
 }
