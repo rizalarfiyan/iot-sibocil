@@ -8,7 +8,19 @@
 #include <SPI.h>
 #include <SoftwareSerial.h>
 #include <millisDelay.h>
+#include <ShiftRegister74HC595.h>
 #include <qrcode.h>
+
+// Input PIN
+#define IR_SENSOR_PIN 36
+#define METAL_SENSOR_PIN 39
+#define CANCEL_BUTTON_PIN 22
+
+// Otput PIN
+#define SERVO_PIN 13
+#define DATA_PIN 25
+#define LATCH_PIN 33
+#define CLOCK_PIN 32
 
 // Declare PIN TFT
 #define TFT_CS 14
@@ -19,14 +31,6 @@
 #define SS_RX_PIN 4
 #define SS_TX_PIN 5
 
-// Input PIN
-#define IR_SENSOR_PIN 36
-#define METAL_SENSOR_PIN 39
-#define CANCEL_BUTTON_PIN 22
-
-// Otput PIN
-#define SERVO_PIN 13
-
 // Declare Color
 #define ST77XX_DARK_GRAY 0x4228
 
@@ -34,6 +38,7 @@
 #define DEFAULT_TEXT_SIZE 2.5
 
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+ShiftRegister74HC595<1> sr(DATA_PIN, CLOCK_PIN, LATCH_PIN);
 PN532_HSU pn532shu(Serial1);
 PN532 nfc(pn532shu);
 SoftwareSerial softwareSerial(SS_RX_PIN, SS_TX_PIN);
@@ -49,6 +54,9 @@ const long interval = 100;
 
 const unsigned long LOADING_DELAY = 100;
 millisDelay loadingDelay;
+
+const unsigned long BLINK_DELAY = 1000;
+millisDelay blinkDelay;
 
 const unsigned long SERVO_DELAY = 3000;
 const unsigned long SERVO_WAITING_DELAY = 400;
@@ -101,8 +109,7 @@ void setup() {
   uint32_t versiondata = nfc.getFirmwareVersion();
   if (!versiondata) {
     Serial.print("Didn't find PN53x board");
-    while (1)
-      ;
+    while (1);
   }
 
   Serial.print("Found chip PN5");
@@ -116,10 +123,11 @@ void setup() {
 
   delay(1000);
   displayQRCode("https://www.google.com");
-  delay(5000);
+  delay(2000);
 
   loadingDelay.start(LOADING_DELAY);
   // servoDelay.start(SERVO_DELAY);
+  blinkDelay.start(BLINK_DELAY);
 }
 
 void loop() {
@@ -133,6 +141,21 @@ void loop() {
     isLoading = false;
     dotIndex = 0;
     tft.fillScreen(ST77XX_BLACK);
+  }
+
+  // RED => 0
+  // GREEN => 1
+  // BLUE => 2
+  if (blinkDelay.justFinished()) {
+    blinkDelay.repeat();
+    static int state = 0;
+    sr.setAllLow();
+    sr.set(state, HIGH);
+    Serial.println(state);
+    state++;
+    if (state >= 3) {
+      state = 0;
+    }
   }
 
   // Serial.println(analogRead(IR_SENSOR_PIN));
