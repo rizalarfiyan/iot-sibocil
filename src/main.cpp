@@ -2,6 +2,8 @@
 #include <Adafruit_ST7789.h>
 #include <Arduino.h>
 #include <DFRobotDFPlayerMini.h>
+#include <PN532.h>
+#include <PN532_HSU.h>
 #include <SPI.h>
 #include <SoftwareSerial.h>
 #include <qrcode.h>
@@ -15,9 +17,10 @@
 #define SS_RX_PIN 4
 #define SS_TX_PIN 5
 
-// Sensor PIN
+// Input PIN
 #define IR_SENSOR_PIN 36
 #define METAL_SENSOR_PIN 39
+#define CANCEL_BUTTON_PIN 22
 
 // Declare Color
 #define ST77XX_DARK_GRAY 0x4228
@@ -26,6 +29,8 @@
 #define DEFAULT_TEXT_SIZE 2.5
 
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
+PN532_HSU pn532shu(Serial1);
+PN532 nfc(pn532shu);
 SoftwareSerial softwareSerial(SS_RX_PIN, SS_TX_PIN);
 DFRobotDFPlayerMini dfPlayer;
 
@@ -36,11 +41,10 @@ String loadingText = "Loading...";
 unsigned long previousMillis = 0;
 const long interval = 100;
 
-const int buttonPin = 13;
-
 void drawProgressBar();
 void displayCenteredText(String text, uint8_t textSize);
 void displayQRCode(String text);
+void readRFIDAndNFC();
 
 void setup(void) {
   Serial.begin(115200);
@@ -48,15 +52,16 @@ void setup(void) {
   tft.init(240, 240, SPI_MODE3);
   tft.setRotation(2);
 
-  pinMode(buttonPin, INPUT);
-  pinMode(IR_SENSOR_PIN, INPUT);
-  pinMode(METAL_SENSOR_PIN, INPUT);
-
   Serial.println(F("Initialized"));
 
   tft.fillScreen(ST77XX_BLACK);
   tft.setTextColor(ST77XX_WHITE);
   displayCenteredText("Booting...", DEFAULT_TEXT_SIZE);
+
+  Serial.println(F("Configuring Pins..."));
+  pinMode(CANCEL_BUTTON_PIN, INPUT);
+  pinMode(IR_SENSOR_PIN, INPUT);
+  pinMode(METAL_SENSOR_PIN, INPUT);
 
   softwareSerial.begin(9600);
   Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
@@ -74,6 +79,25 @@ void setup(void) {
   dfPlayer.volume(8);
   dfPlayer.playMp3Folder(1);
 
+  Serial1.begin(9600, SERIAL_8N1, 16, 17);
+  nfc.begin();
+
+  uint32_t versiondata = nfc.getFirmwareVersion();
+  if (!versiondata) {
+    Serial.print("Didn't find PN53x board");
+    while (1)
+      ;
+  }
+
+  Serial.print("Found chip PN5");
+  Serial.println((versiondata >> 24) & 0xFF, HEX);
+  Serial.print("Firmware ver. ");
+  Serial.print((versiondata >> 16) & 0xFF, DEC);
+  Serial.print('.');
+  Serial.println((versiondata >> 8) & 0xFF, DEC);
+
+  nfc.SAMConfig();
+
   delay(1000);
   displayQRCode("https://www.google.com");
   delay(5000);
@@ -84,7 +108,7 @@ void loop() {
     drawProgressBar();
   }
 
-  if (digitalRead(buttonPin) == HIGH) {
+  if (digitalRead(CANCEL_BUTTON_PIN) == HIGH) {
     isLoading = true;
   } else {
     isLoading = false;
@@ -92,8 +116,9 @@ void loop() {
     tft.fillScreen(ST77XX_BLACK);
   }
 
-  Serial.println(analogRead(IR_SENSOR_PIN));
-  Serial.println(analogRead(METAL_SENSOR_PIN));
+  // Serial.println(analogRead(IR_SENSOR_PIN));
+  // Serial.println(analogRead(METAL_SENSOR_PIN));
+  readRFIDAndNFC();
 }
 
 void drawProgressBar() {
@@ -150,5 +175,27 @@ void displayQRCode(String text) {
         tft.fillRect(xPos + x * scaleFactor, yPos + y * scaleFactor, scaleFactor, scaleFactor, ST77XX_BLACK);
       }
     }
+  }
+}
+
+void readRFIDAndNFC() {
+  uint8_t uid[] = {0, 0, 0, 0, 0, 0, 0};
+  uint8_t uidLength;
+  bool success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, &uid[0], &uidLength);
+  if (success) {
+    Serial.print(uidLength, DEC);
+    Serial.print(" bytes |");
+
+    String tagId = "";
+    for (uint8_t i = 0; i < uidLength; i++) {
+      if (i > 0) {
+        tagId += ".";
+      }
+      tagId += String(uid[i]);
+    }
+
+    Serial.print(" | ");
+    Serial.print(tagId);
+    Serial.println("");
   }
 }
