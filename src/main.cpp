@@ -15,6 +15,10 @@
 #define SS_RX_PIN 4
 #define SS_TX_PIN 5
 
+// Sensor PIN
+#define IR_SENSOR_PIN 36
+#define METAL_SENSOR_PIN 39
+
 // Declare Color
 #define ST77XX_DARK_GRAY 0x4228
 
@@ -45,6 +49,8 @@ void setup(void) {
   tft.setRotation(2);
 
   pinMode(buttonPin, INPUT);
+  pinMode(IR_SENSOR_PIN, INPUT);
+  pinMode(METAL_SENSOR_PIN, INPUT);
 
   Serial.println(F("Initialized"));
 
@@ -60,7 +66,7 @@ void setup(void) {
     Serial.println(F("2.Please insert the SD card!"));
     displayCenteredText("DF Player Error!", DEFAULT_TEXT_SIZE);
     while (true) {
-      delay(0);  // Code to compatible with ESP8266 watch dog.
+      delay(0);
     }
   }
 
@@ -85,6 +91,9 @@ void loop() {
     dotIndex = 0;
     tft.fillScreen(ST77XX_BLACK);
   }
+
+  Serial.println(analogRead(IR_SENSOR_PIN));
+  Serial.println(analogRead(METAL_SENSOR_PIN));
 }
 
 void drawProgressBar() {
