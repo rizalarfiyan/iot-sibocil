@@ -56,6 +56,52 @@ const int mqtt_port = 1883;
 const String topicTrigger = "revend/trigger";
 const String topicAction = "revend/action/" + String(token);
 
+// declare the enum for the state
+enum RevendStep {
+  STEP_CANCEL = 1,
+  STEP_AUTH = 2,
+  STEP_REVEND = 3,
+};
+
+enum RevendState {
+  STATE_NONE = 0,
+  STATE_ALREADY_REGISTERED = 1,
+  STATE_MUST_REGISTER = 2,
+  STATE_SUCCESS_REGISTER = 3,
+};
+
+struct {
+  RevendStep Step;
+  RevendState State;
+  String Identity;
+  int PointSuccess;
+  int PointFailed;
+  bool IsSet;
+  String Link;
+} current;
+
+struct ActionDataResponse {
+  RevendState State;
+  String Link;
+};
+
+struct ActionResponse {
+  RevendStep Step;
+  ActionDataResponse Data;
+};
+
+void readByStep();
+void callbackAction(ActionResponse res);
+void callbackMQTT(char *topic, byte *payload, unsigned int length);
+void clearScreen();
+void drawProgressBar();
+void displayCenteredText(String text, uint8_t textSize);
+void displayQRCode(String text);
+String readRFIDAndNFC();
+void sendTriggerCancelRequest();
+void sendTriggerCheckUser();
+void sendTriggerSendStatus();
+
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 ShiftRegister74HC595<1> sr(DATA_PIN, CLOCK_PIN, LATCH_PIN);
 PN532_HSU pn532shu(Serial1);
@@ -84,28 +130,9 @@ const unsigned long SERVO_DELAY = 3000;
 const unsigned long SERVO_WAITING_DELAY = 400;
 millisDelay servoDelay;
 
-void callback(char *topic, byte *payload, unsigned int length);
-void clearScreen();
-void drawProgressBar();
-void displayCenteredText(String text, uint8_t textSize);
-void displayQRCode(String text);
-void readRFIDAndNFC();
-
-int pos = 0;
-
-struct ActionDataResponse {
-  int State;
-  String Link;
-};
-
-struct ActionResponse {
-  int Step;
-  ActionDataResponse Data;
-};
-
 void setup() {
   Serial.begin(115200);
-  Serial.print(F("Hello World!"));
+  Serial.print(F("Recycle Vending Machine"));
   tft.init(240, 240, SPI_MODE3);
   tft.setRotation(2);
 
@@ -174,7 +201,7 @@ void setup() {
   delay(500);
 
   client.setServer(mqtt_broker, mqtt_port);
-  client.setCallback(callback);
+  client.setCallback(callbackMQTT);
   while (!client.connected()) {
     String client_id = "revend-";
     client_id += String(WiFi.macAddress());
@@ -186,6 +213,7 @@ void setup() {
     }
   }
 
+  Serial.println("MQTT connected");
   client.subscribe(topicAction.c_str());
 
   loadingDelay.start(LOADING_DELAY);
@@ -200,13 +228,26 @@ void loop() {
     drawProgressBar();
   }
 
-  if (digitalRead(CANCEL_BUTTON_PIN) == HIGH) {
-    isLoading = true;
-  } else {
-    isLoading = false;
-    dotIndex = 0;
-    tft.fillScreen(ST77XX_BLACK);
+  int cancelButton = digitalRead(CANCEL_BUTTON_PIN);
+  if (cancelButton == HIGH && current.Step != STEP_CANCEL && current.Identity != "") {
+    clearScreen();
+    displayCenteredText("Canceled", DEFAULT_TEXT_SIZE);
+    sendTriggerCancelRequest();
+    current.Step = STEP_CANCEL;
+    current.Identity = "";
+    current.PointSuccess = 0;
+    current.PointFailed = 0;
   }
+
+  readByStep();
+
+  // if (digitalRead(CANCEL_BUTTON_PIN) == HIGH) {
+  //   isLoading = true;
+  // } else {
+  //   isLoading = false;
+  //   dotIndex = 0;
+  //   tft.fillScreen(ST77XX_BLACK);
+  // }
 
   // // RED => 0
   // // GREEN => 1
@@ -243,20 +284,118 @@ void loop() {
   // }
 }
 
-void callback(char *topic, byte *payload, unsigned int length) {
+void readByStep() {
+  switch (current.Step) {
+    case STEP_AUTH:
+      switch (current.State) {
+        case STATE_ALREADY_REGISTERED:
+          if (current.IsSet) return;
+          Serial.println("Already Registered");
+          //? voice selamat datang, selamat bergabung
+          //? voice silahkan ambil sampah anda
+          //? set state to pilih sampah
+          break;
+        case STATE_MUST_REGISTER:
+          if (current.IsSet) return;
+          Serial.println("Must Register");
+          clearScreen();
+          displayQRCode(current.Link);
+          break;
+        case STATE_SUCCESS_REGISTER:
+          if (current.IsSet) return;
+          Serial.println("Success Register");
+          //? voice selamat datang, selamat bergabung
+          //? voice silahkan ambil sampah anda
+          //? set state to pilih sampah
+          break;
+      }
+      current.IsSet = true;
+      break;
+
+    default:
+      String tagId = readRFIDAndNFC();
+      if (tagId != "" && current.Identity != tagId) {
+        current.Identity = tagId;
+        sendTriggerCheckUser();
+      }
+      break;
+  }
+}
+
+void sendTriggerCancelRequest() {
+  DynamicJsonDocument doc(150);
+  doc["step"] = STEP_CANCEL;
+  doc["data"]["device_id"] = String(token);
+  doc["data"]["identity"] = current.Identity;
+  String res = "";
+  serializeJson(doc, res);
+  client.publish(topicTrigger.c_str(), res.c_str());
+  Serial.println("Send Trigger Cancel Request");
+}
+
+void sendTriggerCheckUser() {
+  DynamicJsonDocument doc(150);
+  doc["step"] = STEP_AUTH;
+  doc["data"]["device_id"] = String(token);
+  doc["data"]["identity"] = current.Identity;
+  String res = "";
+  serializeJson(doc, res);
+  client.publish(topicTrigger.c_str(), res.c_str());
+  Serial.println("Send Trigger Check User");
+}
+
+void sendTriggerSendStatus() {
+  DynamicJsonDocument doc(150);
+  doc["step"] = STEP_AUTH;
+  doc["data"]["device_id"] = String(token);
+  doc["data"]["identity"] = current.Identity;
+  doc["data"]["failed"] = current.PointFailed;
+  doc["data"]["success"] = current.PointSuccess;
+  String res = "";
+  serializeJson(doc, res);
+  client.publish(topicTrigger.c_str(), res.c_str());
+  Serial.println("Send Trigger Send Status");
+}
+
+void callbackMQTT(char *topic, byte *payload, unsigned int length) {
   if (String(topic) == topicAction) {
     String strRes = "";
     for (int i = 0; i < length; i++) {
       strRes += (char)payload[i];
     }
-    DynamicJsonDocument doc(150);
+    DynamicJsonDocument doc(256);
     deserializeJson(doc, strRes);
     ActionResponse res;
     res.Step = doc["step"];
     res.Data.State = doc["data"]["state"];
     res.Data.Link = doc["data"]["link"].as<String>();
+    Serial.println(doc["data"]["link"].as<String>());
+    callbackAction(res);
     Serial.println(strRes);
     Serial.println("-----------------------");
+  }
+}
+
+void callbackAction(ActionResponse res) {
+  current.IsSet = false;
+  current.Link = "";
+  current.PointSuccess = 0;
+  current.PointFailed = 0;
+  switch (res.Step) {
+    case STEP_CANCEL:
+      current.Step = STEP_CANCEL;
+      current.State = STATE_NONE;
+      current.Identity = "";
+      break;
+    case STEP_AUTH:
+      current.Step = STEP_AUTH;
+      current.State = res.Data.State;
+      if (res.Data.State == STATE_MUST_REGISTER) {
+        current.Link = res.Data.Link;
+      }
+      break;
+    default:
+      break;
   }
 }
 
@@ -303,10 +442,10 @@ void displayCenteredText(String text, uint8_t textSize) {
 
 void displayQRCode(String text) {
   QRCode qrcode;
-  uint8_t qrcodeData[qrcode_getBufferSize(3)];
-  qrcode_initText(&qrcode, qrcodeData, 3, 0, text.c_str());
+  uint8_t qrcodeData[qrcode_getBufferSize(12)];
+  qrcode_initText(&qrcode, qrcodeData, 12, 0, text.c_str());
 
-  int scaleFactor = 6;
+  float scaleFactor = 3;
   int displaySize = qrcode.size * scaleFactor;
   int xPos = (tft.width() - displaySize) / 2;
   int yPos = (tft.height() - displaySize) / 2;
@@ -321,14 +460,11 @@ void displayQRCode(String text) {
   }
 }
 
-void readRFIDAndNFC() {
+String readRFIDAndNFC() {
   uint8_t uid[] = {0, 0, 0, 0, 0, 0, 0};
   uint8_t uidLength;
   bool success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, &uid[0], &uidLength);
   if (success) {
-    Serial.print(uidLength, DEC);
-    Serial.print(" bytes |");
-
     String tagId = "";
     for (uint8_t i = 0; i < uidLength; i++) {
       if (i > 0) {
@@ -337,8 +473,11 @@ void readRFIDAndNFC() {
       tagId += String(uid[i]);
     }
 
-    Serial.print(" | ");
-    Serial.print(tagId);
-    Serial.println("");
+    Serial.print(uidLength, DEC);
+    Serial.print(" bytes | ");
+    Serial.println(tagId);
+    return tagId;
   }
+
+  return "";
 }
