@@ -90,6 +90,7 @@ struct ActionResponse {
   ActionDataResponse Data;
 };
 
+void welcomeMessage();
 void readByStep();
 void callbackAction(ActionResponse res);
 void callbackMQTT(char *topic, byte *payload, unsigned int length);
@@ -122,6 +123,9 @@ const long interval = 100;
 
 const unsigned long LOADING_DELAY = 100;
 millisDelay loadingDelay;
+
+const unsigned long WELCOME_DELAY = 3000;
+millisDelay welcomeDelay;
 
 const unsigned long BLINK_DELAY = 1000;
 millisDelay blinkDelay;
@@ -200,6 +204,8 @@ void setup() {
   displayCenteredText(WiFi.localIP().toString(), DEFAULT_TEXT_SIZE);
   delay(500);
 
+  clearScreen();
+  displayCenteredText("Connecting MQTT...", DEFAULT_TEXT_SIZE);
   client.setServer(mqtt_broker, mqtt_port);
   client.setCallback(callbackMQTT);
   while (!client.connected()) {
@@ -219,6 +225,9 @@ void setup() {
   loadingDelay.start(LOADING_DELAY);
   // servoDelay.start(SERVO_DELAY);
   blinkDelay.start(BLINK_DELAY);
+  welcomeDelay.start(WELCOME_DELAY);
+
+  welcomeMessage();
 }
 
 void loop() {
@@ -228,15 +237,22 @@ void loop() {
     drawProgressBar();
   }
 
+  if (welcomeDelay.justFinished()) {
+    welcomeDelay.repeat();
+    welcomeMessage();
+  }
+
   int cancelButton = digitalRead(CANCEL_BUTTON_PIN);
   if (cancelButton == HIGH && current.Step != STEP_CANCEL && current.Identity != "") {
-    clearScreen();
-    displayCenteredText("Canceled", DEFAULT_TEXT_SIZE);
-    sendTriggerCancelRequest();
     current.Step = STEP_CANCEL;
     current.Identity = "";
     current.PointSuccess = 0;
     current.PointFailed = 0;
+    welcomeDelay.repeat();
+    Serial.println("Cancel button");
+    clearScreen();
+    displayCenteredText("Canceled", DEFAULT_TEXT_SIZE);
+    sendTriggerCancelRequest();
   }
 
   readByStep();
@@ -284,6 +300,14 @@ void loop() {
   // }
 }
 
+void welcomeMessage() {
+  Serial.println("Welcome Revend");
+  clearScreen();
+  displayCenteredText("Revend", DEFAULT_TEXT_SIZE);
+  //? voice selamat datang
+  //? voice silahkan tempelkan kartu anda
+}
+
 void readByStep() {
   switch (current.Step) {
     case STEP_AUTH:
@@ -294,6 +318,7 @@ void readByStep() {
           //? voice selamat datang, selamat bergabung
           //? voice silahkan ambil sampah anda
           //? set state to pilih sampah
+          current.Step = STEP_REVEND;
           break;
         case STATE_MUST_REGISTER:
           if (current.IsSet) return;
@@ -307,6 +332,7 @@ void readByStep() {
           //? voice selamat datang, selamat bergabung
           //? voice silahkan ambil sampah anda
           //? set state to pilih sampah
+          current.Step = STEP_REVEND;
           break;
       }
       current.IsSet = true;
@@ -381,6 +407,7 @@ void callbackAction(ActionResponse res) {
   current.Link = "";
   current.PointSuccess = 0;
   current.PointFailed = 0;
+  welcomeDelay.stop();
   switch (res.Step) {
     case STEP_CANCEL:
       current.Step = STEP_CANCEL;
