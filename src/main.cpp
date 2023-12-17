@@ -70,15 +70,20 @@ enum RevendState {
   STATE_SUCCESS_REGISTER = 3,
 };
 
-struct {
+// Current Data
+struct CurrentData {
   RevendStep Step;
   RevendState State;
   String Identity;
   int PointSuccess;
   int PointFailed;
+  int countIsSuccess;
+  int countIsFailed;
   bool IsSet;
   String Link;
-} current;
+};
+
+CurrentData current;
 
 struct ActionDataResponse {
   RevendState State;
@@ -117,6 +122,7 @@ PubSubClient client(espClient);
 int dotIndex = 0;
 bool isLoading = false;
 String loadingText = "Loading...";
+bool isOpenServo = false;
 
 unsigned long previousMillis = 0;
 const long interval = 100;
@@ -127,10 +133,13 @@ millisDelay loadingDelay;
 const unsigned long WELCOME_DELAY = 3000;
 millisDelay welcomeDelay;
 
+const int WAITING_COUNTER_SENSOR_DELAY = 2;
+const unsigned long SENSOR_DELAY = 250;
+millisDelay sensorDelay;
+
 const unsigned long BLINK_DELAY = 1000;
 millisDelay blinkDelay;
 
-const unsigned long SERVO_DELAY = 3000;
 const unsigned long SERVO_WAITING_DELAY = 400;
 millisDelay servoDelay;
 
@@ -245,59 +254,34 @@ void loop() {
   int cancelButton = digitalRead(CANCEL_BUTTON_PIN);
   if (cancelButton == HIGH && current.Step != STEP_CANCEL && current.Identity != "") {
     current.Step = STEP_CANCEL;
+    clearScreen();
+    displayCenteredText("Canceled", DEFAULT_TEXT_SIZE);
+    Serial.println("Cancel button pressed");
+    sendTriggerCancelRequest();
     current.Identity = "";
     current.PointSuccess = 0;
     current.PointFailed = 0;
+    current.countIsSuccess = 0;
+    current.countIsFailed = 0;
+    sr.setAllLow();
     welcomeDelay.repeat();
-    Serial.println("Cancel button");
-    clearScreen();
-    displayCenteredText("Canceled", DEFAULT_TEXT_SIZE);
-    sendTriggerCancelRequest();
   }
 
   readByStep();
 
-  // if (digitalRead(CANCEL_BUTTON_PIN) == HIGH) {
-  //   isLoading = true;
-  // } else {
-  //   isLoading = false;
-  //   dotIndex = 0;
-  //   tft.fillScreen(ST77XX_BLACK);
-  // }
-
-  // // RED => 0
-  // // GREEN => 1
-  // // BLUE => 2
-  // if (blinkDelay.justFinished()) {
-  //   blinkDelay.repeat();
-  //   static int state = 0;
-  //   sr.setAllLow();
-  //   sr.set(state, HIGH);
-  //   Serial.println(state);
-  //   state++;
-  //   if (state >= 3) {
-  //     state = 0;
-  //   }
-  // }
-
-  // displayQRCode("https://www.google.com");
-
-  // Serial.println(analogRead(IR_SENSOR_PIN));
-  // Serial.println(analogRead(METAL_SENSOR_PIN));
-  // readRFIDAndNFC();
-
-  // if (servoDelay.justFinished()) {
-  //   static bool isBack = true;
-  //   if (isBack) {
-  //     servo.write(180);
-  //     servoDelay.start(SERVO_WAITING_DELAY);
-  //     isBack = false;
-  //   } else {
-  //     servo.write(0);
-  //     servoDelay.stop();
-  //     isBack = true;
-  //   }
-  // }
+  if (servoDelay.justFinished() || isOpenServo) {
+    isOpenServo = false;
+    static bool isBack = true;
+    if (isBack) {
+      servo.write(180);
+      servoDelay.start(SERVO_WAITING_DELAY);
+      isBack = false;
+    } else {
+      servo.write(0);
+      servoDelay.stop();
+      isBack = true;
+    }
+  }
 }
 
 void welcomeMessage() {
@@ -306,6 +290,55 @@ void welcomeMessage() {
   displayCenteredText("Revend", DEFAULT_TEXT_SIZE);
   //? voice selamat datang
   //? voice silahkan tempelkan kartu anda
+}
+
+void readSensor() {
+  Serial.print("Read sensor: ");
+  int irSensor = analogRead(IR_SENSOR_PIN);
+  int metalSensor = analogRead(METAL_SENSOR_PIN);
+  Serial.print(irSensor);
+  Serial.print(" - ");
+  Serial.println(metalSensor);
+  bool hasObject = irSensor < 1200;
+  bool isMetal = metalSensor < 500;
+  if (isMetal && hasObject) {
+    Serial.println("success botol kaleng!");
+    if (current.IsSet) return;
+    if (current.countIsSuccess < WAITING_COUNTER_SENSOR_DELAY) {
+      current.countIsSuccess++;
+      return;
+    }
+    current.PointSuccess++;
+    current.IsSet = true;
+    sr.setAllLow();
+    sr.set(1, HIGH);
+    sendTriggerSendStatus();
+    isOpenServo = true;
+    return;
+  }
+
+  if (hasObject && !isMetal) {
+    Serial.println("not kaleng!");
+    if (current.IsSet) return;
+    if (current.countIsFailed < WAITING_COUNTER_SENSOR_DELAY) {
+      current.countIsFailed++;
+      return;
+    }
+    current.PointFailed++;
+    current.IsSet = true;
+    sr.setAllLow();
+    sr.set(0, HIGH);
+    sendTriggerSendStatus();
+    return;
+  }
+
+  current.countIsSuccess = 0;
+  current.countIsFailed = 0;
+  current.IsSet = false;
+  Serial.println("not detected!");
+
+  sr.setAllLow();
+  sr.set(2, HIGH);
 }
 
 void readByStep() {
@@ -318,7 +351,9 @@ void readByStep() {
           //? voice selamat datang, selamat bergabung
           //? voice silahkan ambil sampah anda
           //? set state to pilih sampah
+          clearScreen();
           current.Step = STEP_REVEND;
+          sensorDelay.start(SENSOR_DELAY);
           break;
         case STATE_MUST_REGISTER:
           if (current.IsSet) return;
@@ -332,10 +367,18 @@ void readByStep() {
           //? voice selamat datang, selamat bergabung
           //? voice silahkan ambil sampah anda
           //? set state to pilih sampah
+          clearScreen();
           current.Step = STEP_REVEND;
+          sensorDelay.start(SENSOR_DELAY);
           break;
       }
       current.IsSet = true;
+      break;
+    case STEP_REVEND:
+      if (sensorDelay.justFinished()) {
+        sensorDelay.repeat();
+        readSensor();
+      }
       break;
 
     default:
@@ -371,8 +414,8 @@ void sendTriggerCheckUser() {
 }
 
 void sendTriggerSendStatus() {
-  DynamicJsonDocument doc(150);
-  doc["step"] = STEP_AUTH;
+  DynamicJsonDocument doc(256);
+  doc["step"] = STEP_REVEND;
   doc["data"]["device_id"] = String(token);
   doc["data"]["identity"] = current.Identity;
   doc["data"]["failed"] = current.PointFailed;
