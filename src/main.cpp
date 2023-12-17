@@ -77,8 +77,8 @@ struct CurrentData {
   String Identity;
   int PointSuccess;
   int PointFailed;
-  int countIsSuccess;
-  int countIsFailed;
+  int CountIsSuccess;
+  int CountIsFailed;
   bool IsSet;
   String Link;
 };
@@ -256,15 +256,15 @@ void loop() {
     current.Step = STEP_CANCEL;
     clearScreen();
     displayCenteredText("Canceled", DEFAULT_TEXT_SIZE);
+    welcomeDelay.repeat();
     Serial.println("Cancel button pressed");
     sendTriggerCancelRequest();
+    sr.setAllLow();
     current.Identity = "";
     current.PointSuccess = 0;
     current.PointFailed = 0;
-    current.countIsSuccess = 0;
-    current.countIsFailed = 0;
-    sr.setAllLow();
-    welcomeDelay.repeat();
+    current.CountIsSuccess = 0;
+    current.CountIsFailed = 0;
   }
 
   readByStep();
@@ -304,8 +304,8 @@ void readSensor() {
   if (isMetal && hasObject) {
     Serial.println("success botol kaleng!");
     if (current.IsSet) return;
-    if (current.countIsSuccess < WAITING_COUNTER_SENSOR_DELAY) {
-      current.countIsSuccess++;
+    if (current.CountIsSuccess < WAITING_COUNTER_SENSOR_DELAY) {
+      current.CountIsSuccess++;
       return;
     }
     current.PointSuccess++;
@@ -320,8 +320,8 @@ void readSensor() {
   if (hasObject && !isMetal) {
     Serial.println("not kaleng!");
     if (current.IsSet) return;
-    if (current.countIsFailed < WAITING_COUNTER_SENSOR_DELAY) {
-      current.countIsFailed++;
+    if (current.CountIsFailed < WAITING_COUNTER_SENSOR_DELAY) {
+      current.CountIsFailed++;
       return;
     }
     current.PointFailed++;
@@ -332,8 +332,8 @@ void readSensor() {
     return;
   }
 
-  current.countIsSuccess = 0;
-  current.countIsFailed = 0;
+  current.CountIsSuccess = 0;
+  current.CountIsFailed = 0;
   current.IsSet = false;
   Serial.println("not detected!");
 
@@ -446,20 +446,24 @@ void callbackMQTT(char *topic, byte *payload, unsigned int length) {
 }
 
 void callbackAction(ActionResponse res) {
-  current.IsSet = false;
-  current.Link = "";
-  current.PointSuccess = 0;
-  current.PointFailed = 0;
   welcomeDelay.stop();
   switch (res.Step) {
     case STEP_CANCEL:
       current.Step = STEP_CANCEL;
       current.State = STATE_NONE;
       current.Identity = "";
+      current.IsSet = false;
+      current.Link = "";
+      current.PointSuccess = 0;
+      current.PointFailed = 0;
       break;
     case STEP_AUTH:
       current.Step = STEP_AUTH;
       current.State = res.Data.State;
+      current.IsSet = false;
+      current.Link = "";
+      current.PointSuccess = 0;
+      current.PointFailed = 0;
       if (res.Data.State == STATE_MUST_REGISTER) {
         current.Link = res.Data.Link;
       }
