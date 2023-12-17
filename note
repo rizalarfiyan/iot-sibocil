@@ -1,0 +1,76 @@
+--> ESP32 Devkit
+Processor: ESP32-WROOM-32 module
+CPU: Dual-core Tensilica LX6 32-bit microprocessor with clock frequency up to 240 MHz
+SRAM: 520 KB
+ROM: 448 KB
+RTC SRAM: 16 KB
+Connectivity:
+- 802.11 b/g/n Wi-Fi
+--- Supported data rates: up to 150 Mbps
+--- Supported security protocols: WPA2/WPA3
+--- Supported features: station mode, AP mode, mesh mode
+- Bluetooth 4.2 BR/EDR and BLE
+--- Bluetooth 4.2 BR/EDR and BLE
+--- Supported features: classic Bluetooth, Bluetooth Low Energy
+--- Supported profiles: SPP, GATT, A2DP, AVRCP, HFP, HID
+Peripherals:
+- 34 GPIO pins
+- 12 ADC channels
+- 2 DAC channels
+- 2 I2S channels
+- 3 SPI channels
+- 2 UART channels
+- I2C master and slave
+- Ethernet MAC
+- Touch sensor
+- Hall sensor
+- SD card interface
+- IR receiver
+- IR transmitter
+- Camera interface
+- LCD interface
+- Power supply:
+- 5V DC input
+- 3.3V DC output
+LDO regulator
+Dimensions: 51.8 x 25.4 mm
+Weight: 10 g
+
+16 Pin + 2 GND & VCC
+ESP32 GPIO D15 (HSPI) -> DC TFT Display
+ESP32 GPIO D2 (HSPI CS) -> RES TFT Display
+ESP32 GPIO D23 (SPI MOSI) -> SDA TFT Display
+ESP32 GPIO D18 (SPI CLK) -> SCL TFT Display
+
+ESP32 GPIO D4 (Software Serial as RX) -> DF Player TX 
+ESP32 GPIO D5 (Software Serial as TX) -> DF Player RX
+
+ESP32 GPIO D16 (RX2) -> TX PN532 RFID module
+ESP32 GPIO D17 (TX2) -> RX PN532 RFID module
+
+ESP32 GPIO D22 -> Push button input
+
+ESP32 GPIO D36 (Sensor VP) -> Analog Read TCRT5000
+ESP32 GPIO D39 (Sensor VN) -> Analog Read LJ12A34Z
+ESP32 GPIO D13 (PWM) -> Motor Servo
+
+ESP32 GPIO D32 -> Clock input IC Shift Register 74Hc595
+ESP32 GPIO D33 -> Latch Pin input IC Shift Register 74Hc595
+ESP32 GPIO D25 -> Serial Data input IC Shift Register 74Hc595
+
+ESP32 GPIO D12 -> Potensiometer for volume control DF player
+
+Adafruit_GFX.h (TFT Display)
+Adafruit_ST7789.h (TFT Display seri ST7789)
+Arduino.h (Arduino core libary)
+DFRobotDFPlayerMini.h (DF player)
+ESP32Servo.h (Motor Servo)
+PN532.h (PN532 RFID)
+PN532_HSU.h (PN532 RFID with UART)
+SPI.h (SPI connect TFT Display)
+SoftwareSerial.h (Software Serial connect DF player)
+millisDelay.h (Simple Delay strategy)
+ShiftRegister74HC595.h (Shift Register 74HC595)
+qrcode.h (Generate byres of QR Code)
+WiFi.h (WiFi connectifity)
+PubSubClient.h (MQTT Client)

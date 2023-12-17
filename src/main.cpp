@@ -1,14 +1,17 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <DFRobotDFPlayerMini.h>
 #include <ESP32Servo.h>
 #include <PN532.h>
 #include <PN532_HSU.h>
+#include <PubSubClient.h>
 #include <SPI.h>
-#include <SoftwareSerial.h>
-#include <millisDelay.h>
 #include <ShiftRegister74HC595.h>
+#include <SoftwareSerial.h>
+#include <WiFi.h>
+#include <millisDelay.h>
 #include <qrcode.h>
 
 // Input PIN
@@ -37,6 +40,22 @@
 // Declare Default
 #define DEFAULT_TEXT_SIZE 2.5
 
+// Wifi
+const char *ssid = "hub space";
+const char *password = "Password123@";
+
+// Revend
+const char *token = "2ZdEzVzwZae0BkYAmILaXL7W05R";
+
+// MQTT
+const char *mqtt_broker = "192.168.254.137";
+const char *mqtt_username = "";
+const char *mqtt_password = "";
+const int mqtt_port = 1883;
+
+const String topicTrigger = "revend/trigger";
+const String topicAction = "revend/action/" + String(token);
+
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 ShiftRegister74HC595<1> sr(DATA_PIN, CLOCK_PIN, LATCH_PIN);
 PN532_HSU pn532shu(Serial1);
@@ -44,6 +63,9 @@ PN532 nfc(pn532shu);
 SoftwareSerial softwareSerial(SS_RX_PIN, SS_TX_PIN);
 DFRobotDFPlayerMini dfPlayer;
 Servo servo;
+
+WiFiClient espClient;
+PubSubClient client(espClient);
 
 int dotIndex = 0;
 bool isLoading = false;
@@ -62,12 +84,24 @@ const unsigned long SERVO_DELAY = 3000;
 const unsigned long SERVO_WAITING_DELAY = 400;
 millisDelay servoDelay;
 
+void callback(char *topic, byte *payload, unsigned int length);
+void clearScreen();
 void drawProgressBar();
 void displayCenteredText(String text, uint8_t textSize);
 void displayQRCode(String text);
 void readRFIDAndNFC();
 
 int pos = 0;
+
+struct ActionDataResponse {
+  int State;
+  String Link;
+};
+
+struct ActionResponse {
+  int Step;
+  ActionDataResponse Data;
+};
 
 void setup() {
   Serial.begin(115200);
@@ -77,8 +111,7 @@ void setup() {
 
   Serial.println(F("Initialized"));
 
-  tft.fillScreen(ST77XX_BLACK);
-  tft.setTextColor(ST77XX_WHITE);
+  clearScreen();
   displayCenteredText("Booting...", DEFAULT_TEXT_SIZE);
 
   Serial.println(F("Configuring Pins..."));
@@ -109,7 +142,8 @@ void setup() {
   uint32_t versiondata = nfc.getFirmwareVersion();
   if (!versiondata) {
     Serial.print("Didn't find PN53x board");
-    while (1);
+    while (1) {
+    };
   }
 
   Serial.print("Found chip PN5");
@@ -121,9 +155,38 @@ void setup() {
 
   nfc.SAMConfig();
 
-  delay(1000);
-  displayQRCode("https://www.google.com");
-  delay(2000);
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  clearScreen();
+  displayCenteredText("Connecting Wifi...", DEFAULT_TEXT_SIZE);
+  Serial.print("Connecting to WiFi...");
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print('.');
+    delay(1000);
+  }
+
+  Serial.println();
+  Serial.println("WiFi connected");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+  clearScreen();
+  displayCenteredText(WiFi.localIP().toString(), DEFAULT_TEXT_SIZE);
+  delay(500);
+
+  client.setServer(mqtt_broker, mqtt_port);
+  client.setCallback(callback);
+  while (!client.connected()) {
+    String client_id = "revend-";
+    client_id += String(WiFi.macAddress());
+    Serial.printf("Conecting to MQTT broker (%s)\n", client_id.c_str());
+    if (!client.connect(client_id.c_str(), mqtt_username, mqtt_password)) {
+      Serial.print("MQTT failed with state: ");
+      Serial.println(client.state());
+      delay(1000);
+    }
+  }
+
+  client.subscribe(topicAction.c_str());
 
   loadingDelay.start(LOADING_DELAY);
   // servoDelay.start(SERVO_DELAY);
@@ -131,6 +194,8 @@ void setup() {
 }
 
 void loop() {
+  client.loop();
+
   if (isLoading) {
     drawProgressBar();
   }
@@ -143,20 +208,22 @@ void loop() {
     tft.fillScreen(ST77XX_BLACK);
   }
 
-  // RED => 0
-  // GREEN => 1
-  // BLUE => 2
-  if (blinkDelay.justFinished()) {
-    blinkDelay.repeat();
-    static int state = 0;
-    sr.setAllLow();
-    sr.set(state, HIGH);
-    Serial.println(state);
-    state++;
-    if (state >= 3) {
-      state = 0;
-    }
-  }
+  // // RED => 0
+  // // GREEN => 1
+  // // BLUE => 2
+  // if (blinkDelay.justFinished()) {
+  //   blinkDelay.repeat();
+  //   static int state = 0;
+  //   sr.setAllLow();
+  //   sr.set(state, HIGH);
+  //   Serial.println(state);
+  //   state++;
+  //   if (state >= 3) {
+  //     state = 0;
+  //   }
+  // }
+
+  // displayQRCode("https://www.google.com");
 
   // Serial.println(analogRead(IR_SENSOR_PIN));
   // Serial.println(analogRead(METAL_SENSOR_PIN));
@@ -174,6 +241,23 @@ void loop() {
   //     isBack = true;
   //   }
   // }
+}
+
+void callback(char *topic, byte *payload, unsigned int length) {
+  if (String(topic) == topicAction) {
+    String strRes = "";
+    for (int i = 0; i < length; i++) {
+      strRes += (char)payload[i];
+    }
+    DynamicJsonDocument doc(150);
+    deserializeJson(doc, strRes);
+    ActionResponse res;
+    res.Step = doc["step"];
+    res.Data.State = doc["data"]["state"];
+    res.Data.Link = doc["data"]["link"].as<String>();
+    Serial.println(strRes);
+    Serial.println("-----------------------");
+  }
 }
 
 void drawProgressBar() {
@@ -198,6 +282,11 @@ void drawProgressBar() {
     }
     dotIndex = (dotIndex + 1) % numDots;
   }
+}
+
+void clearScreen() {
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextColor(ST77XX_WHITE);
 }
 
 void displayCenteredText(String text, uint8_t textSize) {
