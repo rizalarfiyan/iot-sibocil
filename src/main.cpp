@@ -39,16 +39,17 @@
 
 // Declare Default
 #define DEFAULT_TEXT_SIZE 2.5
+#define DEFAULT_COUNTER_SIZE 8
 
 // Wifi
 const char *ssid = "hub space";
 const char *password = "Password123@";
 
 // Revend
-const char *token = "2ZdEzVzwZae0BkYAmILaXL7W05R";
+const char *token = "2Zm0s8rJ7xsdQARxjcjPtc2QcnE";
 
 // MQTT
-const char *mqtt_broker = "192.168.254.137";
+const char *mqtt_broker = "34.126.149.214";
 const char *mqtt_username = "";
 const char *mqtt_password = "";
 const int mqtt_port = 1883;
@@ -102,8 +103,10 @@ void callbackMQTT(char *topic, byte *payload, unsigned int length);
 void clearScreen();
 void drawProgressBar();
 void displayCenteredText(String text, uint8_t textSize);
+void displayCenteredTextX(String text, uint8_t textSize, int16_t yPos);
 void displayQRCode(String text);
 String readRFIDAndNFC();
+void updateCounter();
 void sendTriggerCancelRequest();
 void sendTriggerCheckUser();
 void sendTriggerSendStatus();
@@ -130,7 +133,7 @@ const long interval = 100;
 const unsigned long LOADING_DELAY = 100;
 millisDelay loadingDelay;
 
-const unsigned long WELCOME_DELAY = 3000;
+const unsigned long WELCOME_DELAY = 6000;
 millisDelay welcomeDelay;
 
 const int WAITING_COUNTER_SENSOR_DELAY = 2;
@@ -159,6 +162,7 @@ void setup() {
   pinMode(IR_SENSOR_PIN, INPUT);
   pinMode(METAL_SENSOR_PIN, INPUT);
   servo.attach(SERVO_PIN);
+  servo.write(180);
 
   softwareSerial.begin(9600);
   Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
@@ -231,10 +235,9 @@ void setup() {
   Serial.println("MQTT connected");
   client.subscribe(topicAction.c_str());
 
-  loadingDelay.start(LOADING_DELAY);
-  // servoDelay.start(SERVO_DELAY);
-  blinkDelay.start(BLINK_DELAY);
   welcomeDelay.start(WELCOME_DELAY);
+  loadingDelay.start(LOADING_DELAY);
+  blinkDelay.start(BLINK_DELAY);
 
   welcomeMessage();
 }
@@ -255,9 +258,8 @@ void loop() {
   if (cancelButton == HIGH && current.Step != STEP_CANCEL && current.Identity != "") {
     current.Step = STEP_CANCEL;
     clearScreen();
-    displayCenteredText("Canceled", DEFAULT_TEXT_SIZE);
-    welcomeDelay.repeat();
-    Serial.println("Cancel button pressed");
+    displayCenteredText("Exiting", DEFAULT_TEXT_SIZE);
+    Serial.println("Exiting button pressed");
     sendTriggerCancelRequest();
     sr.setAllLow();
     current.Identity = "";
@@ -265,6 +267,7 @@ void loop() {
     current.PointFailed = 0;
     current.CountIsSuccess = 0;
     current.CountIsFailed = 0;
+    welcomeDelay.repeat();
   }
 
   readByStep();
@@ -273,11 +276,11 @@ void loop() {
     isOpenServo = false;
     static bool isBack = true;
     if (isBack) {
-      servo.write(180);
+      servo.write(0);
       servoDelay.start(SERVO_WAITING_DELAY);
       isBack = false;
     } else {
-      servo.write(0);
+      servo.write(180);
       servoDelay.stop();
       isBack = true;
     }
@@ -312,6 +315,7 @@ void readSensor() {
     current.IsSet = true;
     sr.setAllLow();
     sr.set(1, HIGH);
+    updateCounter();
     sendTriggerSendStatus();
     isOpenServo = true;
     return;
@@ -328,6 +332,7 @@ void readSensor() {
     current.IsSet = true;
     sr.setAllLow();
     sr.set(0, HIGH);
+    updateCounter();
     sendTriggerSendStatus();
     return;
   }
@@ -352,6 +357,7 @@ void readByStep() {
           //? voice silahkan ambil sampah anda
           //? set state to pilih sampah
           clearScreen();
+          updateCounter();
           current.Step = STEP_REVEND;
           sensorDelay.start(SENSOR_DELAY);
           break;
@@ -368,6 +374,7 @@ void readByStep() {
           //? voice silahkan ambil sampah anda
           //? set state to pilih sampah
           clearScreen();
+          updateCounter();
           current.Step = STEP_REVEND;
           sensorDelay.start(SENSOR_DELAY);
           break;
@@ -389,6 +396,19 @@ void readByStep() {
       }
       break;
   }
+}
+
+void updateCounter() {
+  clearScreen();
+  tft.setTextColor(ST77XX_WHITE);
+  displayCenteredTextX("Success", DEFAULT_TEXT_SIZE, 20);
+  tft.setTextColor(ST77XX_GREEN);
+  displayCenteredTextX(String(current.PointSuccess), DEFAULT_COUNTER_SIZE, 50);
+  tft.setTextColor(ST77XX_WHITE);
+  displayCenteredTextX("Failed", DEFAULT_TEXT_SIZE, 140);
+  tft.setTextColor(ST77XX_RED);
+  displayCenteredTextX(String(current.PointFailed), DEFAULT_COUNTER_SIZE, 170);
+  tft.setTextColor(ST77XX_WHITE);
 }
 
 void sendTriggerCancelRequest() {
@@ -446,7 +466,6 @@ void callbackMQTT(char *topic, byte *payload, unsigned int length) {
 }
 
 void callbackAction(ActionResponse res) {
-  welcomeDelay.stop();
   switch (res.Step) {
     case STEP_CANCEL:
       current.Step = STEP_CANCEL;
@@ -458,6 +477,7 @@ void callbackAction(ActionResponse res) {
       current.PointFailed = 0;
       break;
     case STEP_AUTH:
+      welcomeDelay.stop();
       current.Step = STEP_AUTH;
       current.State = res.Data.State;
       current.IsSet = false;
@@ -510,6 +530,17 @@ void displayCenteredText(String text, uint8_t textSize) {
   tft.getTextBounds(text, 0, 0, &x, &y, &textWidth, &textHeight);
   int16_t xPos = (tft.width() - textWidth) / 2;
   int16_t yPos = (tft.height() - textHeight) / 2;
+  tft.setCursor(xPos, yPos);
+  tft.print(text);
+}
+
+void displayCenteredTextX(String text, uint8_t textSize, int16_t yPos) {
+  tft.setTextSize(textSize);
+  tft.setTextWrap(false);
+  int16_t x, y;
+  uint16_t textWidth, textHeight;
+  tft.getTextBounds(text, 0, 0, &x, &y, &textWidth, &textHeight);
+  int16_t xPos = (tft.width() - textWidth) / 2;
   tft.setCursor(xPos, yPos);
   tft.print(text);
 }
