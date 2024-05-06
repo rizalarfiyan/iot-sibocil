@@ -1,3 +1,3 @@
 <div align="center">
-  <h1 style="margin-bottom:0">IOT Revend</h1>
+  <h1 style="margin-bottom:0">IOT Sibocil</h1>
 </div>
